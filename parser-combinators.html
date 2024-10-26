@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="styles.css">
+    <link rel="stylesheet" type="text/css" href="layout.css">
+    <title></title>
+</head>
+
+<body>
+    <div class="main">
+        <p style="float:right"><a href="index.html">Posts</a>&nbsp;<a href="about.html">About</a></p><p>Knut Eldhuset</p>
+        <p>2024-10-26</p>
+        <h1>Parser combinators</h1>
+        <p>Advent of Code 2024 is not far off, which reminds me I should refresh my parsing skills. For those that have not participated yet,
+Advent of Code, AoC, presents a new programming puzzle each day from December 1st to December 25th. Each puzzle has two parts, and requires the
+first part to be solved before the second part is revealed. The second part usually adds some twist to the first part, like increasing the input size, adding
+or removing constraints. This can lead to situations where your brute force solution for the first part is completely unsuitable for solving the second part.</p>
+<p>The input given for each puzzle is presented as a text file that contains anything from a single number, to an assembly language program for a fictitious
+CPU that you have written as part of AoC. The latter brings us to the topic at hand: parsing (text).</p>
+<h2>Hand crafted parser</h2>
+<p>Parsing simple input like this is easy:</p>
+<div class="codehilite"><pre><span></span><code><span class="mi">1</span> <span class="mi">2</span> <span class="mi">54</span> <span class="mi">67</span>
+</code></pre></div>
+
+<p>We can split the string on whitespace and convert to integers:</p>
+<div class="codehilite"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="nb">print</span><span class="p">([</span><span class="nb">int</span><span class="p">(</span><span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="s2">&quot;1 2 54 67&quot;</span><span class="o">.</span><span class="n">split</span><span class="p">()])</span>
+<span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">54</span><span class="p">,</span> <span class="mi">67</span><span class="p">]</span>
+</code></pre></div>
+
+<p>It is tempting to continue in the same vein when input is more complex:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">source</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    mov x, 10</span>
+<span class="s2">    mov y, 3</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="n">output</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">source</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+    <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="nb">int</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">2</span><span class="p">])))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</code></pre></div>
+
+<p>which produces:</p>
+<div class="codehilite"><pre><span></span><code>[(&#39;mov&#39;, &#39;x&#39;, 10), (&#39;mov&#39;, &#39;y&#39;, 3)]
+</code></pre></div>
+
+<p>Writing an interpreter that evaluates this program should then be quite straightforward. What if the second operand could be a register, a literal integer or
+perhaps an address? Instructions might have different number of operands. A hand crafted parser could quickly become a mess.</p>
+<h2>Language example</h2>
+<p>We will now try to make a general parser for an assembly language. We will use this assembly program that calculates <code>10 % 3</code> as an example:</p>
+<div class="codehilite"><pre><span></span><code><span class="w">    </span><span class="nf">mov</span><span class="w"> </span><span class="no">x</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span>
+<span class="w">    </span><span class="nf">mov</span><span class="w"> </span><span class="no">y</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span>
+<span class="w">    </span><span class="nf">mov</span><span class="w"> </span><span class="no">z</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span>
+<span class="nl">loop:</span>
+<span class="w">    </span><span class="nf">sub</span><span class="w"> </span><span class="no">x</span><span class="p">,</span><span class="w"> </span><span class="no">y</span>
+<span class="w">    </span><span class="nf">bcs</span><span class="w"> </span><span class="no">done</span>
+<span class="w">    </span><span class="nf">inc</span><span class="w"> </span><span class="no">z</span>
+<span class="w">    </span><span class="nf">jmp</span><span class="w"> </span><span class="no">loop</span>
+<span class="nl">done:</span>
+<span class="w">    </span><span class="nf">mov</span><span class="w"> </span><span class="no">x</span><span class="p">,</span><span class="w"> </span><span class="no">z</span>
+</code></pre></div>
+
+<p>We now have multiple lines of input, each containing one, two or three tokens, and some lines contain a label instead of an instruction.
+Time to write a proper parser. Since this is not Python, whitespace
+is not significant and can be removed. Breaking down our assembly language, we have the following cases:</p>
+<ol>
+<li>Labels</li>
+<li>Instructions with one operand<ol>
+<li>Operand is a register</li>
+<li>Operand is a label</li>
+</ol>
+</li>
+<li>Instructions with two operands<ol>
+<li>Second operand is a literal number</li>
+<li>Second operand is a register</li>
+</ol>
+</li>
+</ol>
+<h2>A language grammar</h2>
+<p>It is helpful to define the grammar for our language before diving into the specifics of parser combinators. Using <a href="https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form">Backus-Naur form</a>,
+we can express the grammar like so:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">&lt;</span><span class="nc">statements</span><span class="p">&gt;</span>        <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">statement</span><span class="p">&gt;</span> | <span class="p">&lt;</span><span class="nc">statement</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">statements</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">statement</span><span class="p">&gt;</span>         <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">label</span><span class="p">&gt;</span> | <span class="p">&lt;</span><span class="nc">instruction</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">label</span><span class="p">&gt;</span>             <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">identifier</span><span class="p">&gt;</span> &quot;:&quot;
+<span class="p">&lt;</span><span class="nc">instruction</span><span class="p">&gt;</span>       <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">mnemonic</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">register</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">integer</span><span class="p">&gt;</span>
+                      | <span class="p">&lt;</span><span class="nc">mnemonic</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">register</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">register</span><span class="p">&gt;</span>
+                      | <span class="p">&lt;</span><span class="nc">mnemonic</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">identifier</span><span class="p">&gt;</span>
+                      | <span class="p">&lt;</span><span class="nc">mnemonic</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">register</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">mnemonic</span><span class="p">&gt;</span>          <span class="o">::=</span> &quot;mov&quot; | &quot;sub&quot; | &quot;inc&quot; | &quot;jmp&quot; | &quot;bcs&quot;
+<span class="p">&lt;</span><span class="nc">register</span><span class="p">&gt;</span>          <span class="o">::=</span> &quot;x&quot; | &quot;y&quot; | &quot;z&quot;
+<span class="p">&lt;</span><span class="nc">alpha-numeric</span><span class="p">&gt;</span>     <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">alpha</span><span class="p">&gt;</span> | <span class="p">&lt;</span><span class="nc">numeric</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">alpha-numerics</span><span class="p">&gt;</span>    <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">alpha-numeric</span><span class="p">&gt;</span> | <span class="p">&lt;</span><span class="nc">alpha-numeric</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">alpha-numerics</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">identifier</span><span class="p">&gt;</span>        <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">alpha</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">alpha-numerics</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">integer-digits</span><span class="p">&gt;</span>    <span class="o">::=</span> <span class="p">&lt;</span><span class="nc">numeric</span><span class="p">&gt;</span> | <span class="p">&lt;</span><span class="nc">numeric</span><span class="p">&gt;</span> <span class="p">&lt;</span><span class="nc">integer-digits</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nc">integer</span><span class="p">&gt;</span>           <span class="o">::=</span> &quot;-&quot; <span class="p">&lt;</span><span class="nc">integer-digits</span><span class="p">&gt;</span> | <span class="p">&lt;</span><span class="nc">integer-digits</span><span class="p">&gt;</span>
+</code></pre></div>
+
+<p>where <code>&lt;alpha&gt;</code> is the set <code>[a-zA-Z]</code>, and <code>&lt;numeric&gt;</code> is the set <code>[0-9]</code>.</p>
+<h2>Quick introduction to parser combinators</h2>
+<p>At its core, a parser combinator does what the name implies - it combines parsers. A basic example could be the symbol <code>&lt;register&gt;</code> from our grammar above.
+A parser combinator for <code>&lt;register&gt;</code> would combine the parsers for literal "x", literal "y" and literal "z" into a parser that accepts literals "x", "y" or "z". Now let us see how this looks in practice, using the Python library <a href="https://parsita.drhagen.com/">Parsita</a>:</p>
+<div class="codehilite"><table class="codehilitetable"><tr><td class="linenos"><div class="linenodiv"><pre><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="kn">from</span> <span class="nn">parsita</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="k">class</span> <span class="nc">ExampleParser</span><span class="p">(</span><span class="n">ParserContext</span><span class="p">,</span> <span class="n">whitespace</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;[ ]*&quot;</span><span class="p">):</span>
+    <span class="n">register</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">lit</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">lit</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">ExampleParser</span><span class="o">.</span><span class="n">register</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">ExampleParser</span><span class="o">.</span><span class="n">register</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">ExampleParser</span><span class="o">.</span><span class="n">register</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">))</span>
+</code></pre></div></td></tr></table></div>
+
+<p>We see that the definition of the parser combinator for <code>expression</code> closely resembles the BNF grammar.
+Line 6 and 7 show how a literal parser works in isolation. Line 8-10 show the parser combinator in action.
+Running this snippet, produces the following output:</p>
+<div class="codehilite"><table class="codehilitetable"><tr><td class="linenos"><div class="linenodiv"><pre><span class="normal"> 1</span>
+<span class="normal"> 2</span>
+<span class="normal"> 3</span>
+<span class="normal"> 4</span>
+<span class="normal"> 5</span>
+<span class="normal"> 6</span>
+<span class="normal"> 7</span>
+<span class="normal"> 8</span>
+<span class="normal"> 9</span>
+<span class="normal">10</span>
+<span class="normal">11</span>
+<span class="normal">12</span>
+<span class="normal">13</span></pre></div></td><td class="code"><div><pre><span></span><code>&lt;Success: x&gt;
+&lt;Failure: Expected &#39;x&#39; but found &#39;z&#39;
+Line 1, character 1
+
+z
+^&gt;
+&lt;Success: x&gt;
+&lt;Success: z&gt;
+&lt;Failure: Expected &#39;x&#39; or &#39;y&#39; or &#39;z&#39; but found &#39;a&#39;
+Line 1, character 1
+
+a
+^&gt;
+</code></pre></div></td></tr></table></div>
+
+<p>Line 1 shows <code>literal("x")</code> successfully parsing the string "x". As expected, line 2 shows failure when parsing the string "z". Lines 7 and 8 shows the
+combined parser successfully parsing both "x" and "z", while line 9 shows expected failure when trying to parse "a". Note that Parsita gives helpful
+error messages when failing. This is really handy with more complex grammars.</p>
+<p>While <code>&lt;Success: x&gt;</code> is a nice parse result, Parsita lets us convert this into something more useful. Suppose we define a <code>Register</code> class. We can have
+the parser return an instance of that class instead of <code>Success</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">parsita</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+
+<span class="n">Register</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">&quot;Register&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">ExampleParser</span><span class="p">(</span><span class="n">ParserContext</span><span class="p">,</span> <span class="n">whitespace</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;[ ]*&quot;</span><span class="p">):</span>
+    <span class="n">register</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">Register</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">ExampleParser</span><span class="o">.</span><span class="n">register</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">unwrap</span><span class="p">())</span>
+</code></pre></div>
+
+<p>Assuming the parser succeeds, calling <code>unwrap</code> extracts the parser output. Running this snippet prints:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;x&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+<p><code>&gt; Register</code> tells Parsita to call the function <code>Register</code> when the preceding parser succeeds. The function is called with a single argument: a list of
+the matching terms from the parser, which in this case is a list of length 1, containing "x", "y" or "z". If there are more than one element in the list,
+we can use the utility function <code>splat</code>. <code>splat(Instruction)</code> does the same as <code>lambda s: Instruction(*s)</code>, unwrapping the list into positional arguments.</p>
+<h2>Parsing our assembly language</h2>
+<p>We can translate the BNF grammar into Parsita syntax quite easily:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span> <span class="nn">parsita</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">parsita.util</span> <span class="kn">import</span> <span class="n">splat</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">namedtuple</span>
+
+<span class="n">Instruction1</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">&quot;Instruction1&quot;</span><span class="p">,</span> <span class="s2">&quot;mnemonic, operand&quot;</span><span class="p">)</span>
+<span class="n">Instruction2</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">&quot;Instruction2&quot;</span><span class="p">,</span> <span class="s2">&quot;mnemonic, operand1, operand2&quot;</span><span class="p">)</span>
+<span class="n">Register</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">&quot;Register&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span>
+<span class="n">Label</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s2">&quot;Label&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">ExampleParser</span><span class="p">(</span><span class="n">ParserContext</span><span class="p">,</span> <span class="n">whitespace</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;[ ]*&quot;</span><span class="p">):</span>
+    <span class="n">statements</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="p">(</span><span class="n">statement</span> <span class="o">&lt;&lt;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">s</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="p">]))</span> <span class="o">|</span>
+        <span class="p">(</span><span class="n">statement</span> <span class="o">&amp;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="n">statements</span> <span class="o">&gt;</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">s</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">+</span> <span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+    <span class="p">)</span>
+    <span class="n">statement</span> <span class="o">=</span> <span class="n">label</span> <span class="o">|</span> <span class="n">instruction</span>
+    <span class="n">label</span> <span class="o">=</span> <span class="n">identifier</span> <span class="o">&lt;&lt;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">Label</span>
+    <span class="n">instruction</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="p">(</span><span class="n">mnemonic</span> <span class="o">&amp;</span> <span class="n">register</span> <span class="o">&gt;</span> <span class="n">splat</span><span class="p">(</span><span class="n">Instruction1</span><span class="p">))</span> <span class="o">|</span>
+        <span class="p">(</span><span class="n">mnemonic</span> <span class="o">&amp;</span> <span class="n">identifier</span> <span class="o">&gt;</span> <span class="n">splat</span><span class="p">(</span><span class="n">Instruction1</span><span class="p">))</span> <span class="o">|</span>
+        <span class="p">(</span><span class="n">mnemonic</span> <span class="o">&amp;</span> <span class="n">register</span> <span class="o">&amp;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="n">integer</span> <span class="o">&gt;</span> <span class="n">splat</span><span class="p">(</span><span class="n">Instruction2</span><span class="p">))</span> <span class="o">|</span> 
+        <span class="p">(</span><span class="n">mnemonic</span> <span class="o">&amp;</span> <span class="n">register</span> <span class="o">&amp;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="n">register</span> <span class="o">&gt;</span> <span class="n">splat</span><span class="p">(</span><span class="n">Instruction2</span><span class="p">))</span>
+    <span class="p">)</span>
+    <span class="n">mnemonic</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;mov&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;sub&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;inc&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;jmp&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;bcs&quot;</span><span class="p">)</span>
+    <span class="n">register</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">Register</span>
+    <span class="n">alpha_numeric</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">|</span> <span class="n">numeric</span> <span class="o">&gt;</span> <span class="nb">str</span>
+    <span class="n">alpha_numerics</span> <span class="o">=</span> <span class="n">alpha_numeric</span> <span class="o">|</span> <span class="n">alpha_numeric</span> <span class="o">&amp;</span> <span class="n">alpha_numerics</span> <span class="o">&gt;</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+    <span class="n">identifier</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">&amp;</span> <span class="n">alpha_numerics</span> <span class="o">&gt;</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+    <span class="n">integer_digits</span> <span class="o">=</span> <span class="n">numeric</span> <span class="o">|</span> <span class="p">((</span><span class="n">numeric</span> <span class="o">&amp;</span> <span class="n">integer_digits</span><span class="p">)</span> <span class="o">&gt;</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">d</span><span class="p">:</span> <span class="n">d</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">10</span> <span class="o">+</span> <span class="n">d</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+    <span class="n">integer</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;-&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">integer_digits</span> <span class="o">|</span> <span class="n">integer_digits</span>
+    <span class="n">alpha</span> <span class="o">=</span> <span class="n">reg</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;[a-zA-Z]&quot;</span><span class="p">)</span>
+    <span class="n">numeric</span> <span class="o">=</span> <span class="n">reg</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;[0-9]&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+<p>In addition to using <code>&gt;</code> to call a function, we see the use of <code>&lt;&lt;</code> and <code>&gt;&gt;</code> to ignore matching terms. <code>&lt;&lt; lit("\n")</code> "eats" the following term so that it
+does not show up in the parser result, while still requiring a literal <code>\n</code> to appear in the input.</p>
+<p>Running the parser with our assembly program as input, yields the following output:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">[</span><span class="n">Instruction2</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;mov&#39;</span><span class="p">,</span> <span class="n">operand1</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;x&#39;</span><span class="p">),</span> <span class="n">operand2</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>
+ <span class="n">Instruction2</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;mov&#39;</span><span class="p">,</span> <span class="n">operand1</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;y&#39;</span><span class="p">),</span> <span class="n">operand2</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+ <span class="n">Instruction2</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;mov&#39;</span><span class="p">,</span> <span class="n">operand1</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;z&#39;</span><span class="p">),</span> <span class="n">operand2</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+ <span class="n">Label</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;loop&#39;</span><span class="p">),</span>
+ <span class="n">Instruction2</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;sub&#39;</span><span class="p">,</span> <span class="n">operand1</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;x&#39;</span><span class="p">),</span> <span class="n">operand2</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;y&#39;</span><span class="p">)),</span>
+ <span class="n">Instruction1</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;bcs&#39;</span><span class="p">,</span> <span class="n">operand</span><span class="o">=</span><span class="s1">&#39;done&#39;</span><span class="p">),</span>
+ <span class="n">Instruction1</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;inc&#39;</span><span class="p">,</span> <span class="n">operand</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;z&#39;</span><span class="p">)),</span>
+ <span class="n">Instruction1</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;jmp&#39;</span><span class="p">,</span> <span class="n">operand</span><span class="o">=</span><span class="s1">&#39;loop&#39;</span><span class="p">),</span>
+ <span class="n">Label</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;done&#39;</span><span class="p">),</span>
+ <span class="n">Instruction2</span><span class="p">(</span><span class="n">mnemonic</span><span class="o">=</span><span class="s1">&#39;mov&#39;</span><span class="p">,</span> <span class="n">operand1</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;x&#39;</span><span class="p">),</span> <span class="n">operand2</span><span class="o">=</span><span class="n">Register</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">&#39;z&#39;</span><span class="p">))]</span>
+</code></pre></div>
+
+<p>Note that the parser above can be simplified a bit. We can use regular expressions to match both numbers and strings, not just single digits or characters. Parsita also lets us define a repeated parser, which simplifies the <code>statement</code> parser. The simplified parser looks like this:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">class</span> <span class="nc">ExampleParser</span><span class="p">(</span><span class="n">ParserContext</span><span class="p">,</span> <span class="n">whitespace</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;[ \n]*&quot;</span><span class="p">):</span>
+    <span class="n">statements</span> <span class="o">=</span> <span class="n">rep1</span><span class="p">(</span><span class="n">label</span> <span class="o">|</span> <span class="n">instruction</span><span class="p">)</span>
+    <span class="n">label</span> <span class="o">=</span> <span class="n">identifier</span> <span class="o">&lt;&lt;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">Label</span>
+    <span class="n">instruction</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="p">(</span><span class="n">mnemonic</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">register</span> <span class="o">|</span> <span class="n">identifier</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">splat</span><span class="p">(</span><span class="n">Instruction1</span><span class="p">))</span> <span class="o">|</span>
+        <span class="p">(</span><span class="n">mnemonic</span> <span class="o">&amp;</span> <span class="n">register</span> <span class="o">&amp;</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="p">(</span><span class="n">register</span> <span class="o">|</span> <span class="n">integer</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">splat</span><span class="p">(</span><span class="n">Instruction2</span><span class="p">))</span>
+    <span class="p">)</span>
+    <span class="n">mnemonic</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;mov&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;sub&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;inc&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;jmp&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;bcs&quot;</span><span class="p">)</span>
+    <span class="n">register</span> <span class="o">=</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">)</span> <span class="o">|</span> <span class="n">lit</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">Register</span>
+    <span class="n">identifier</span> <span class="o">=</span> <span class="n">reg</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;[a-zA-Z][a-zA-Z0-9]*&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">str</span>
+    <span class="n">integer</span> <span class="o">=</span> <span class="n">reg</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;-?[0-9]+&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">int</span>
+</code></pre></div>
+
+<h2>Alternatives</h2>
+<p>Besides hand crafting a parser, there are other alternatives than parser combinators. Parser generators like Lex/Yacc, or Flex/Bison, are widely used. Lex is
+short for "lexer" or "lexical analyzer", a tool used to break down the input into tokens, like keywords, identifiers, numbers and strings etc. Yacc is an
+acronym for "yet another compiler compiler". Lex and Yacc are commonly used together, splitting the job of parsing into lexical analysis and building 
+a grammar. While these tools mostly target C, <a href="https://www.antlr.org/">ANTLR</a> is a more modern parser generator that can output code in many different
+languages.</p>
+<p>The tools mentioned, including Parsita, are tailored to parsing text. Similar tools exist to parse binary data. 
+<a href="https://construct.readthedocs.io/en/latest/">Construct</a> for Python is one example. It does not label itself a parser combinator, but is very similar to one.
+Construct is unique in that it can both parse binary data into Python data structures and also take a nested dictionary or list and generate binary data from
+it.</p>
+    </div>
+</body>
+
+</html>
